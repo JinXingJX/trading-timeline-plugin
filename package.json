@@ -1,0 +1,40 @@
+{
+  "name": "daily-trading-timeline-plugin",
+  "private": true,
+  "version": "0.2.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5175",
+    "build": "tsc && vite build && npm run verify:bundle",
+    "preview": "vite preview --host 127.0.0.1 --port 5175",
+    "test": "vitest run",
+    "verify:bundle": "node scripts/verify-bundle.mjs"
+  },
+  "dependencies": {
+    "@daily/plugin-sdk": "file:../daliy/packages/plugin-sdk",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.4.6",
+    "vitest": "^5.1.0"
+  },
+  "description": "Market event timeline plugin for Daily",
+  "author": "JinXingJX",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JinXingJX/trading-timeline-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JinXingJX/trading-timeline-plugin/issues"
+  }
+}

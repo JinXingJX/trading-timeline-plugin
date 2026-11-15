@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: trading-timeline-plugin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: trading-timeline-plugin
+      - name: Check out the shared plugin SDK
+        uses: actions/checkout@v4
+        with:
+          repository: JinXingJX/daily
+          ref: f6651ae1ec11f1ade70627e004d36ff8565c3984
+          path: daliy
+          sparse-checkout: packages/plugin-sdk
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: trading-timeline-plugin/.nvmrc
+          cache: npm
+          cache-dependency-path: trading-timeline-plugin/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-latest'
+        with:
+          name: Timeline-plugin
+          path: trading-timeline-plugin/.daily-plugin/
+          include-hidden-files: true
+          retention-days: 7

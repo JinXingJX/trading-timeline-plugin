@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trading Timeline · Dev Harness</title>
+  </head>
+  <body>
+    <div id="view" data-daily-theme="light"></div>
+    <script type="module">
+      // Browser-only development harness: plays the part of Daily for the dashboard view.
+      import plugin from "/src/main.tsx";
+
+      const now = Date.now();
+      const iso = (offset) => new Date(now + offset).toISOString();
+      const state = {
+        version: 1,
+        settings: {
+          watchlist: ["SPY", "QQQ", "BTC", "黄金", "原油", "USD/CNY"],
+          timezone: "Asia/Shanghai",
+          discoveryIntervalMinutes: 60,
+          analysisDelayMinutes: 10,
+          minimumImpact: "medium",
+          sources: [
+            { id: "google-market-pulse", name: "Google News · 市场脉冲", url: "https://news.google.com/rss/search?q={query}", enabled: true, lastFetchedAt: now - 180000, lastError: null },
+            { id: "federal-reserve", name: "Federal Reserve · 官方发布", url: "https://www.federalreserve.gov/feeds/press_all.xml", enabled: true, lastFetchedAt: now - 420000, lastError: null }
+          ]
+        },
+        events: [
+          { id: "evt-cpi", title: "美国 CPI 月度数据发布", scheduledAt: iso(21 * 3600000), timezone: "America/New_York", category: "宏观", impact: "high", symbols: ["SPY", "QQQ", "DXY", "黄金"], thesis: "核心通胀粘性将决定降息预期能否继续前移。", rationale: "多条日历信息明确指向下一交易日的 CPI 发布时间。", sourceUrls: ["https://example.com/cpi-calendar"], status: "scheduled", analysis: null, failureReason: null, discoveredAt: now - 3600000, createdAt: now - 3600000, updatedAt: now - 3600000 },
+          { id: "evt-fomc", title: "FOMC 利率决议与主席新闻发布会", scheduledAt: iso(5 * 86400000), timezone: "America/New_York", category: "央行", impact: "high", symbols: ["SPY", "TLT", "DXY", "BTC"], thesis: "声明措辞和点阵图变化比利率本身更可能触发跨资产波动。", rationale: "美联储官方日历已公布会议与新闻发布会时间。", sourceUrls: ["https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"], status: "scheduled", analysis: null, failureReason: null, discoveredAt: now - 7200000, createdAt: now - 7200000, updatedAt: now - 7200000 },
+          { id: "evt-earnings", title: "大型科技公司季度业绩密集披露", scheduledAt: iso(8 * 86400000), timezone: "America/New_York", category: "财报", impact: "medium", symbols: ["QQQ", "NVDA", "MSFT"], thesis: "资本开支指引将重新定价 AI 基础设施链条的增长斜率。", rationale: "公司投资者关系页面确认盘后披露时间。", sourceUrls: ["https://example.com/earnings"], status: "scheduled", analysis: null, failureReason: null, discoveredAt: now - 7200000, createdAt: now - 7200000, updatedAt: now - 7200000 },
+          { id: "evt-ecb", title: "欧洲央行利率决议", scheduledAt: iso(-86400000), timezone: "Europe/Frankfurt", category: "央行", impact: "high", symbols: ["EUR/USD", "DAX"], thesis: "市场关注政策路径而非单次调整。", rationale: "欧洲央行官方议程。", sourceUrls: [], status: "completed", failureReason: null, discoveredAt: now - 172800000, createdAt: now - 172800000, updatedAt: now - 72000000, analysis: { summary: "欧洲央行维持利率不变，并强调后续决策继续依赖数据。", marketReaction: "欧元先涨后回落，利率曲线对年内宽松幅度的定价变化有限。", verdict: "mixed", confidence: 78, affectedAssets: [{ symbol: "EUR/USD", direction: "volatile", reason: "声明偏谨慎，但新闻发布会没有强化单一方向。" }, { symbol: "DAX", direction: "unclear", reason: "增长预期与利率支撑相互抵消。" }], scenarios: ["若后续工资数据继续降温，宽松预期可能重新升温。", "若服务通胀保持粘性，前端利率将维持高位。"], evidence: [{ title: "ECB keeps key interest rates unchanged", url: "https://example.com/ecb", publishedAt: iso(-86400000), source: "ECB" }], completedAt: now - 72000000 } }
+        ],
+        runs: [{ id: "run-1", kind: "discovery", status: "completed", message: "读取 62 条信息，新增 3 个、更新 1 个事件。", eventId: null, startedAt: now - 300000, finishedAt: now - 240000, headlineCount: 62 }],
+        lastDiscoveryAt: now - 240000,
+        nextDiscoveryAt: now + 3360000,
+        lastError: null,
+        updatedAt: now
+      };
+      const storage = new Map([
+        ["timeline.state.v1", state],
+        ["timeline.worker.status", { owner: "dev-worker", phase: "idle", message: "下一检查：美国 CPI 月度数据发布", heartbeatAt: now }]
+      ]);
+      const host = {
+        pluginId: "daily.trading_timeline",
+        request: async () => ({}),
+        on: () => () => undefined,
+        host: { getContext: async () => ({ plugin: {} }), setDirty: async () => ({}) },
+        storage: { get: async (key) => storage.get(key) ?? null, set: async (key, value) => { storage.set(key, value); return {}; }, compareAndSet: async (key, _expected, value) => { storage.set(key, value); return true; }, compareAndRemove: async (key) => storage.delete(key), remove: async (key) => { storage.delete(key); return {}; }, list: async () => Object.fromEntries(storage) },
+        model: { invoke: async () => ({ text: '{"events":[]}' }) },
+        network: { fetch: async (url) => ({ ok: true, status: 200, url, contentType: "application/rss+xml", text: "<rss><channel></channel></rss>" }) }
+      };
+      await plugin.activate(host);
+
+      // Daily mounts each view into a shadow root whose #root is the `daily-view` size container.
+      const root = document.getElementById("view").attachShadow({ mode: "open" });
+      const base = new CSSStyleSheet();
+      base.replaceSync(":host{all:initial;position:fixed;inset:0} #root{position:absolute;inset:0;overflow:hidden;outline:none;contain:layout paint style;container:daily-view / size}");
+      root.adoptedStyleSheets = [base];
+      const container = Object.assign(document.createElement("div"), { id: "root", tabIndex: -1 });
+      root.append(container);
+      plugin.views["timeline.dashboard"].mount(container, {
+        viewId: "timeline.dashboard",
+        root,
+        theme: "light",
+        visible: true,
+        signal: new AbortController().signal,
+        addStyles(css) {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync(css);
+          root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+        },
+        onThemeChange: () => () => undefined,
+        onVisibilityChange: () => () => undefined
+      });
+    </script>
+  </body>
+</html>

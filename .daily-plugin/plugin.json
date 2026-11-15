@@ -1,0 +1,21 @@
+{
+  "identifier": "daily.trading_timeline",
+  "name": "交易 Timeline",
+  "description": "从活跃市场信息中识别高影响事件，自动建立时间线，并在事件到点后重新抓取证据完成影响分析。",
+  "payloadHint": "打开交易事件台，查看自动发现的宏观、财报、政策与行业事件。",
+  "version": "0.2.0",
+  "author": "Daily Labs",
+  "entry": "dist/plugin.js",
+  "devEntry": "src/main.tsx",
+  "activation": "startup",
+  "contributes": {
+    "views": [
+      {
+        "id": "timeline.dashboard",
+        "title": "交易 Timeline",
+        "icon": "chart-candlestick"
+      }
+    ]
+  },
+  "settingsSchema": {}
+}
