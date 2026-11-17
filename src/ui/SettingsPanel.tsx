@@ -8,12 +8,14 @@ import type { ImpactLevel, TimelineSettings, TimelineSource } from "../types";
 import { useDialogFocus } from "./useDialogFocus";
 
 export function SettingsPanel({
+  error,
   draft,
   busy,
   onChange,
   onClose,
   onSave,
 }: {
+  error: string | null;
   draft: TimelineSettings;
   busy: boolean;
   onChange: (settings: TimelineSettings) => void;
@@ -37,10 +39,11 @@ export function SettingsPanel({
   const availablePresets = SOURCE_PRESETS.filter((preset) => !draft.sources.some((source) => source.id === preset.id));
   const full = draft.sources.length >= MAX_SOURCES;
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="timeline-settings-title">
+    <div className="overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }} role="dialog" aria-modal="true" aria-labelledby="timeline-settings-title">
       <div ref={panelRef} className="panel settings-panel">
-        <div className="panel-header"><div><h2 id="timeline-settings-title">自动化设置</h2><span>扫描频率、分析时机与数据源</span></div><button className="icon-button" aria-label="关闭自动化设置" onClick={onClose}><X size={18} /></button></div>
+        <div className="panel-header"><div><h2 id="timeline-settings-title">自动化设置</h2><span>扫描频率、分析时机与数据源</span></div><button className="icon-button" title="关闭 Esc" aria-label="关闭自动化设置" onClick={onClose}><X size={18} /></button></div>
         <div className="panel-body">
+          {error ? <div className="tl-notice error inline" role="alert">{error}</div> : null}
           <label className="field full"><span>关注资产 <small>用逗号分隔</small></span><input value={draft.watchlist.join(", ")} onChange={(event) => onChange({ ...draft, watchlist: event.target.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean) })} /></label>
           <div className="field-grid">
             <label className="field"><span>扫描间隔</span><select value={draft.discoveryIntervalMinutes} onChange={(event) => onChange({ ...draft, discoveryIntervalMinutes: Number(event.target.value) })}><option value={15}>15 分钟</option><option value={30}>30 分钟</option><option value={60}>1 小时</option><option value={180}>3 小时</option><option value={720}>12 小时</option></select></label>
@@ -73,9 +76,9 @@ export function SettingsPanel({
             </div></div>
             {draft.sources.map((source) => (
               <div className="source-editor-row" key={source.id}>
-                <button className={`source-toggle ${source.enabled ? "enabled" : ""}`} aria-pressed={source.enabled} onClick={() => updateSource(source.id, { enabled: !source.enabled })} aria-label={source.enabled ? "停用数据源" : "启用数据源"}><span /></button>
+                <button className={`source-toggle ${source.enabled ? "enabled" : ""}`} aria-pressed={source.enabled} onClick={() => updateSource(source.id, { enabled: !source.enabled })} aria-label={source.enabled ? "停用数据源" : "启用数据源"} title={source.enabled ? "停用数据源" : "启用数据源"}><span /></button>
                 <div><input aria-label="数据源名称" maxLength={120} value={source.name} onChange={(event) => updateSource(source.id, { name: event.target.value })} /><input aria-label={`${source.name} URL`} maxLength={2048} className="url-input" value={source.url} onChange={(event) => updateSource(source.id, { url: event.target.value })} /></div>
-                <button className="icon-button small" aria-label={`删除数据源 ${source.name}`} onClick={() => onChange({ ...draft, sources: draft.sources.filter((item) => item.id !== source.id) })}><Trash2 size={14} /></button>
+                <button className="icon-button small" aria-label={`删除数据源 ${source.name}`} onClick={() => onChange({ ...draft, sources: draft.sources.filter((item) => item.id !== source.id) })} title={`删除数据源 ${source.name}`}><Trash2 size={14} /></button>
               </div>
             ))}
           </div>

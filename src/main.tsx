@@ -1,3 +1,4 @@
+import { pluginDesignStyles } from "@daily/plugin-sdk";
 import { definePlugin } from "@daily/plugin-sdk";
 import { startBackgroundWorker } from "./backgroundWorker";
 import { setView } from "./view";
@@ -11,6 +12,7 @@ export default definePlugin({
           import("react-dom/client"), import("./styles"), import("./ui/TradingTimelineApp"),
         ]);
         if (view.signal.aborted) return;
+        view.addStyles(pluginDesignStyles);
         view.addStyles(styles);
         setView(view);
         const root = createRoot(container);

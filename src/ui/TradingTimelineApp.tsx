@@ -1,16 +1,19 @@
+import { focusPluginPanel } from "@daily/plugin-sdk";
 import {
   AlertTriangle,
   CheckCircle2,
   CircleDot,
   LoaderCircle,
+  PanelLeft,
+  PanelRight,
+  Search,
   Plus,
-  Radar,
   RefreshCw,
   Settings2,
   TimerReset,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { runAutomationCycle } from "../automation";
 import { mutateTimelineState } from "../domain/store";
 import { createId } from "../domain/values";
@@ -38,12 +41,20 @@ const PENDING_STATUSES: MarketEvent["status"][] = ["scheduled", "waiting", "anal
 
 export function TradingTimelineApp() {
   const { state, setState, worker, loadError, refresh } = useTimelineState();
+  const appRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(1440);
+  const [railOpen, setRailOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const query = useDeferredValue(search.trim().toLowerCase());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<TimelineFilter>("upcoming");
   const [settingsDraft, setSettingsDraft] = useState<TimelineSettings | null>(null);
   const [addEventOpen, setAddEventOpen] = useState(false);
   /** Set of in-flight actions, so a long scan doesn't block dismissing or editing. */
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const inFlight = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -61,17 +72,30 @@ export function TradingTimelineApp() {
     void dailyHost().host.setDirty(false).catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    if (!appRef.current) return;
+    const observer = new ResizeObserver(([entry]) => { if (entry.contentRect.width > 0) setWidth(entry.contentRect.width); });
+    observer.observe(appRef.current);
+    return () => observer.disconnect();
+  }, [Boolean(state)]);
+  useEffect(() => {
+    if (settingsDraft || addEventOpen) return;
+    const panel = appRef.current?.querySelector<HTMLElement>(railOpen && width <= 760 ? ".tl-rail" : inspectorOpen && width <= 1040 ? ".tl-inspector" : ".not-a-panel");
+    if (panel) return focusPluginPanel(panel, () => { setRailOpen(false); setInspectorOpen(false); });
+  }, [railOpen, inspectorOpen, width <= 760, width <= 1040, settingsDraft !== null, addEventOpen]);
+
   const visibleEvents = useMemo(() => {
     if (!state) return [];
     return state.events
       .filter((event) => event.status !== "dismissed")
+      .filter((event) => !query || `${event.title} ${event.symbols.join(" ")} ${event.category} ${event.thesis}`.toLowerCase().includes(query))
       .filter((event) => {
         if (filter === "all") return true;
         if (filter === "completed") return event.status === "completed";
         return event.status !== "completed";
       })
       .sort((left, right) => Date.parse(left.scheduledAt) - Date.parse(right.scheduledAt));
-  }, [filter, state]);
+  }, [filter, query, state]);
 
   const eventGroups = useMemo(
     () => groupEventsByDay(visibleEvents, state?.settings.timezone ?? "UTC"),
@@ -79,6 +103,8 @@ export function TradingTimelineApp() {
   );
 
   async function runAction(key: string, fallback: string, action: () => Promise<TimelineState>) {
+    if (inFlight.current.has(key)) return false;
+    inFlight.current.add(key);
     setBusy((current) => new Set(current).add(key));
     setError(null);
     try {
@@ -89,6 +115,7 @@ export function TradingTimelineApp() {
       void refresh();
       return false;
     } finally {
+      inFlight.current.delete(key);
       setBusy((current) => {
         const next = new Set(current);
         next.delete(key);
@@ -100,18 +127,10 @@ export function TradingTimelineApp() {
   const owner = (kind: string) => createId(`dashboard-${kind}`);
 
   if (!state) {
-    return (
-      <div className="timeline-loading" role="status" aria-live="polite">
-        <LoaderCircle className="spin" size={18} />
-        <div>
-          <strong>正在接入市场信号</strong>
-          <span>{loadError ?? "初始化时间线与后台巡检…"}</span>
-        </div>
-      </div>
-    );
+    return <div className="timeline-loading" role="status" aria-label="正在加载时间线"><div className="tl-skeleton title" /><div className="tl-skeleton" /><div className="tl-skeleton short" /><span>正在打开时间线…</span></div>;
   }
 
-  const selectedEvent = state.events.find((event) => event.id === selectedId && event.status !== "dismissed")
+  const selectedEvent = visibleEvents.find((event) => event.id === selectedId)
     ?? visibleEvents[0]
     ?? null;
   const workerOnline = Boolean(worker && now - worker.heartbeatAt < WORKER_OFFLINE_MS);
@@ -150,7 +169,7 @@ export function TradingTimelineApp() {
     if (!settingsDraft) return;
     const validationError = validateSettings(settingsDraft);
     if (validationError) {
-      setError(validationError);
+      setSettingsError(validationError);
       return;
     }
     const draft = settingsDraft;
@@ -172,6 +191,9 @@ export function TradingTimelineApp() {
       mutateTimelineState(owner("mutation"), (latest) => ({ ...latest, events: [...latest.events, event] })));
     if (ok) {
       setSelectedId(event.id);
+      setInspectorOpen(true);
+      setSearch("");
+      setFilter("all");
       setAddEventOpen(false);
     }
   };
@@ -184,18 +206,15 @@ export function TradingTimelineApp() {
   };
 
   return (
-    <div className="timeline-app">
+    <div ref={appRef} className={`timeline-app ${railOpen ? "rail-open" : ""} ${inspectorOpen ? "inspector-open" : ""}`} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "i" && !settingsDraft && !addEventOpen) { event.preventDefault(); event.stopPropagation(); setInspectorOpen(open => !open); } }}>
       <aside className="tl-rail" aria-label="时间线控制">
-        <div className="tl-rail-head">
-          <h1>交易时间线</h1>
-          <p>研究辅助，不构成投资建议</p>
-        </div>
+        <div className="tl-rail-head"><h1>交易时间线</h1><button type="button" className="tl-icon-btn tl-rail-close" title="关闭导航 Esc" aria-label="关闭导航" onClick={() => setRailOpen(false)}><X size={16} /></button><p>研究辅助，不构成投资建议</p></div>
         <div className="tl-rail-body">
           <section className="tl-card">
             <div className="tl-card-row">
               <span className={`tl-led ${workerOnline ? "on" : ""}`} aria-hidden="true" />
               <strong className="tl-grow">{workerOnline ? "自动扫描运行中" : "后台未连接"}</strong>
-              <button type="button" className="tl-btn small" onClick={() => setSettingsDraft(cloneSettings(state.settings))}>
+              <button type="button" className="tl-btn small" onClick={() => (setError(null), setSettingsError(null), setSettingsDraft(cloneSettings(state.settings)))}>
                 <Settings2 size={13} />设置
               </button>
             </div>
@@ -218,18 +237,9 @@ export function TradingTimelineApp() {
           </section>
 
           <section>
-            <div className="tl-label">显示</div>
-            <div className="tl-segmented" role="group" aria-label="事件筛选">
-              <FilterButton active={filter === "upcoming"} onClick={() => setFilter("upcoming")}>待发生</FilterButton>
-              <FilterButton active={filter === "completed"} onClick={() => setFilter("completed")}>已分析</FilterButton>
-              <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>全部</FilterButton>
-            </div>
-          </section>
-
-          <section>
             <div className="tl-label with-action">
               <span>关注资产</span>
-              <button type="button" className="tl-link" onClick={() => setSettingsDraft(cloneSettings(state.settings))}>编辑</button>
+              <button type="button" className="tl-link" onClick={() => (setError(null), setSettingsError(null), setSettingsDraft(cloneSettings(state.settings)))}>编辑</button>
             </div>
             <div className="tl-chips">
               {state.settings.watchlist.map((symbol) => <span key={symbol}>{symbol}</span>)}
@@ -281,21 +291,33 @@ export function TradingTimelineApp() {
 
       <main className="tl-main">
         <header className="tl-bar">
+          <button type="button" className="tl-icon-btn tl-nav-toggle" title="时间线导航" aria-label="时间线导航" aria-pressed={railOpen} onClick={() => { setRailOpen(open => !open); setInspectorOpen(false); }}><PanelLeft size={17} /></button>
           <div className="tl-bar-title">
-            <strong>影响事件</strong>
+            <h1>影响事件</h1>
             <span>{formatDayHeading(new Date(now), state.settings.timezone)} · {state.settings.timezone}</span>
           </div>
-          <button type="button" className="tl-btn" onClick={() => setAddEventOpen(true)}><Plus size={14} />手动事件</button>
+          <button type="button" className="tl-btn" onClick={() => { setError(null); setAddEventOpen(true); }}><Plus size={14} />手动事件</button>
           <button type="button" className="tl-btn primary" disabled={scanDisabled} onClick={() => void handleScanNow()}>
             {scanning ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}{scanning ? "扫描中" : "立即扫描"}
           </button>
+          <button type="button" className="tl-icon-btn" title="事件详情 ⌘I" aria-label="事件详情" aria-pressed={inspectorOpen} disabled={!visibleEvents.length} onClick={() => setInspectorOpen(open => !open)}><PanelRight size={17} /></button>
         </header>
+        <div className="tl-filterbar">
+          <div className="tl-segmented" role="group" aria-label="事件筛选">
+            <FilterButton active={filter === "upcoming"} onClick={() => setFilter("upcoming")}>待观察</FilterButton>
+            <FilterButton active={filter === "completed"} onClick={() => setFilter("completed")}>已分析</FilterButton>
+            <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>全部</FilterButton>
+          </div>
+          <label className="tl-search"><Search size={15} /><input aria-label="搜索事件或资产" placeholder="搜索事件或资产" value={search} onChange={event => setSearch(event.target.value)} />{search ? <button type="button" className="tl-icon-btn" title="清除搜索" aria-label="清除搜索" onClick={() => setSearch("")}><X size={14} /></button> : null}</label>
+          <span className="tl-result-count" role="status">{visibleEvents.length} 个事件</span>
+        </div>
 
         {shownError ? (
           <div className="tl-notice error" role="alert">
             <AlertTriangle size={15} />
             <span>{shownError}</span>
-            <button type="button" className="tl-icon-btn" onClick={() => void handleDismissError()} aria-label="关闭错误提示"><X size={14} /></button>
+            <button type="button" className="tl-btn small" onClick={() => void refresh()}>重试</button>
+            <button type="button" className="tl-icon-btn" onClick={() => void handleDismissError()} title="关闭错误提示" aria-label="关闭错误提示"><X size={14} /></button>
           </div>
         ) : null}
 
@@ -311,10 +333,10 @@ export function TradingTimelineApp() {
                       <EventRow
                         event={event}
                         settings={state.settings}
-                        active={selectedEvent?.id === event.id}
+                        active={inspectorOpen && selectedEvent?.id === event.id}
                         past={Date.parse(event.scheduledAt) <= now}
                         now={now}
-                        onClick={() => setSelectedId(event.id)}
+                        onClick={() => { setSelectedId(event.id); setInspectorOpen(true); setRailOpen(false); }}
                       />
                     </div>
                   ))}
@@ -324,19 +346,21 @@ export function TradingTimelineApp() {
             </div>
           ) : (
             <div className="tl-empty">
-              <div className="tl-empty-mark"><Radar size={22} /></div>
-              <h2>{filter === "completed" ? "还没有已分析的事件" : "时间线上暂时没有事件"}</h2>
-              <p>只有来源中给出明确时间的中高影响事件才会自动加入。可以立即扫描，或先补充关注资产与数据源。</p>
+
+              <h2>{search ? "没有匹配的事件" : filter === "completed" ? "还没有已分析的事件" : "时间线上暂时没有事件"}</h2>
+              <p>{search ? "换一个标题或资产名称。" : "扫描市场信号，或添加一个需要观察的事件。"}</p>
               <div className="tl-actions">
+                {search ? <button type="button" className="tl-btn" onClick={() => setSearch("")}>清除搜索</button> : null}
                 <button type="button" className="tl-btn primary" disabled={scanDisabled} onClick={() => void handleScanNow()}><RefreshCw size={14} />扫描市场</button>
-                <button type="button" className="tl-btn" onClick={() => setAddEventOpen(true)}><Plus size={14} />手动添加</button>
+                <button type="button" className="tl-btn" onClick={() => { setError(null); setAddEventOpen(true); }}><Plus size={14} />手动添加</button>
               </div>
             </div>
           )}
         </div>
       </main>
 
-      <aside className="tl-inspector" aria-label="事件详情">
+      {inspectorOpen ? <aside className="tl-inspector" aria-label="事件详情">
+        <div className="tl-inspector-bar"><strong>事件详情</strong><button type="button" className="tl-icon-btn" title="关闭事件详情 ⌘I" aria-label="关闭事件详情" onClick={() => setInspectorOpen(false)}><X size={16} /></button></div>
         {selectedEvent ? (
           <EventInspector
             event={selectedEvent}
@@ -349,19 +373,23 @@ export function TradingTimelineApp() {
         ) : (
           <div className="tl-inspector-empty"><CircleDot size={20} /><span>选择一个事件，查看事前假设与到点分析。</span></div>
         )}
-      </aside>
+      </aside> : null}
+      {(railOpen && width <= 760) || (inspectorOpen && width <= 1040) ? <div className="tl-panel-backdrop" onClick={() => { setRailOpen(false); setInspectorOpen(false); }} /> : null}
 
       {settingsDraft ? (
         <SettingsPanel
+          error={settingsError ?? error}
           draft={settingsDraft}
           busy={busy.has("settings")}
-          onChange={setSettingsDraft}
-          onClose={() => setSettingsDraft(null)}
+          onChange={(draft) => { setSettingsDraft(draft); setSettingsError(null); }}
+          onClose={() => { setSettingsDraft(null); setSettingsError(null); }}
           onSave={() => void handleSaveSettings()}
         />
       ) : null}
       {addEventOpen ? (
         <AddEventPanel
+          error={error}
+          busy={busy.has("add-event")}
           timezone={state.settings.timezone}
           onClose={() => setAddEventOpen(false)}
           onAdd={(event) => void handleAddEvent(event)}
